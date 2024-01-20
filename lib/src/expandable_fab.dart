@@ -11,6 +11,9 @@ enum ExpandableFabType { fan, up, side }
 /// The position options for the FAB on the screen.
 enum ExpandableFabPos { right, left }
 
+/// The type of transformation
+enum ChildrenAnimationType { rotate, expanded, scale }
+
 /// Style configuration for the overlay displayed behind the Expandable FAB.
 @immutable
 class ExpandableFabOverlayStyle {
@@ -79,6 +82,7 @@ class ExpandableFab extends StatefulWidget {
     this.onClose,
     this.afterClose,
     this.overlayStyle,
+    this.childrenAnimationType = ChildrenAnimationType.rotate,
   }) : super(key: key);
 
   /// Distance from children.
@@ -125,6 +129,9 @@ class ExpandableFab extends StatefulWidget {
 
   /// Provides the style for overlay. No overlay when null.
   final ExpandableFabOverlayStyle? overlayStyle;
+
+  /// The type of transformation animation
+  final ChildrenAnimationType childrenAnimationType;
 
   @override
   State<ExpandableFab> createState() => ExpandableFabState();
@@ -328,7 +335,12 @@ class ExpandableFabState extends State<ExpandableFab>
           progress: _expandAnimation,
           offset: totalOffset,
           fabPos: widget.pos,
+          childrenAnimationType: widget.childrenAnimationType,
+          index: i,
+          duration: widget.duration,
+          animationController: _controller,
           child: widget.children[i],
+          childrenLength: widget.children.length,
         ),
       );
     }
@@ -390,6 +402,11 @@ class _ExpandingActionButton extends StatelessWidget {
     required this.child,
     required this.fabPos,
     required this.offset,
+    required this.childrenAnimationType,
+    required this.index,
+    required this.duration,
+    required this.animationController,
+    required this.childrenLength,
   });
 
   final double directionInDegrees;
@@ -398,33 +415,86 @@ class _ExpandingActionButton extends StatelessWidget {
   final Offset offset;
   final ExpandableFabPos fabPos;
   final Widget child;
+  final ChildrenAnimationType childrenAnimationType;
+  final int index;
+  final Duration duration;
+  final AnimationController animationController;
+  final int childrenLength;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: progress,
       builder: (context, child) {
-        final pos = Offset.fromDirection(
-          directionInDegrees * (math.pi / 180.0),
-          progress.value * maxDistance,
-        );
+        late Offset pos;
+        if (childrenAnimationType == ChildrenAnimationType.scale) {
+          pos = Offset.fromDirection(
+            directionInDegrees * (math.pi / 180.0),
+            maxDistance,
+          );
+        } else {
+          pos = Offset.fromDirection(
+            directionInDegrees * (math.pi / 180.0),
+            progress.value * maxDistance,
+          );
+        }
         return Positioned(
           right: fabPos == ExpandableFabPos.right ? offset.dx + pos.dx : null,
           left: fabPos == ExpandableFabPos.right ? null : -offset.dx + pos.dx,
           bottom: offset.dy + pos.dy,
-          child: Transform.rotate(
-            angle: (1.0 - progress.value) * math.pi / 2,
-            child: IgnorePointer(
-              ignoring: progress.value != 1,
-              child: child,
-            ),
-          ),
+          child: _resolveAnimatedChild(child),
         );
       },
-      child: FadeTransition(
-        opacity: progress,
-        child: child,
-      ),
+      child: childrenAnimationType == ChildrenAnimationType.scale
+          ? child
+          : FadeTransition(
+              opacity: progress,
+              child: child,
+            ),
     );
+  }
+
+  Widget _resolveAnimatedChild(Widget? child) {
+    final isForward = animationController.status == AnimationStatus.forward;
+    final additionalTime =
+        isForward ? (index * 100) : ((childrenLength - index -1) * 200);
+    final finalDuration = Duration(
+      milliseconds: duration.inMilliseconds + additionalTime,
+    );
+    switch (childrenAnimationType) {
+      case ChildrenAnimationType.rotate:
+        return Transform.rotate(
+          angle: (1.0 - progress.value) * math.pi / 2,
+          child: IgnorePointer(
+            ignoring: progress.value != 1,
+            child: child,
+          ),
+        );
+      case ChildrenAnimationType.expanded:
+        return Transform.translate(
+          offset: const Offset(0, 1),
+          child: IgnorePointer(
+            ignoring: progress.value != 1,
+            child: child,
+          ),
+        );
+      case ChildrenAnimationType.scale:
+        return AnimatedBuilder(
+          animation: progress,
+          builder: (context, child) {
+            return AnimatedOpacity(
+              duration: finalDuration,
+              opacity: progress.value,
+              child: child,
+            );
+          },
+          child: AnimatedScale(
+            scale: progress.value,
+            alignment: Alignment(0.9, 0),
+            duration: finalDuration,
+            child: child,
+          ),
+        );
+    }
   }
 }
